@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>G-PDF | 頁面重組與排版大師</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Tailwind runtime theme extension -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            gblue: '#4285F4',
+            gred: '#EA4335',
+            gyellow: '#FBBC05',
+            ggreen: '#34A853'
+          },
+          boxShadow: {
+            soft: '0 20px 55px rgba(15, 23, 42, 0.12)',
+            glow: '0 0 0 4px rgba(66, 133, 244, 0.16)'
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- PDF-Lib v1.17.1 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+
+  <!-- PDF.js v3.4.120 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+
+  <!-- SortableJS v1.15.0 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* Premium scrollbar styling */
+    .custom-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #eef2f7; border-radius: 999px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #4285F4, #34A853);
+      border-radius: 999px;
+      border: 2px solid #eef2f7;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #3367d6, #2d8c47); }
+
+    /* Avoid browser default image dragging interfering with pan */
+    #previewImage { user-select: none; -webkit-user-drag: none; transform-origin: center center; }
+
+    /* Smooth glass cards */
+    .glass {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+
+    .checkerboard {
+      background-image:
+        linear-gradient(45deg, #f1f5f9 25%, transparent 25%),
+        linear-gradient(-45deg, #f1f5f9 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #f1f5f9 75%),
+        linear-gradient(-45deg, transparent 75%, #f1f5f9 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0px;
+    }
+  </style>
+</head>
+<body class="min-h-screen overflow-x-hidden bg-slate-100 text-slate-800">
+  <!-- Decorative Google color background ribbons -->
+  <div class="fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute -top-28 -left-28 h-72 w-72 rounded-full bg-gblue/20 blur-3xl"></div>
+    <div class="absolute top-20 -right-24 h-80 w-80 rounded-full bg-gyellow/25 blur-3xl"></div>
+    <div class="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-ggreen/20 blur-3xl"></div>
+    <div class="absolute bottom-20 right-1/4 h-64 w-64 rounded-full bg-gred/15 blur-3xl"></div>
+  </div>
+
+  <main class="mx-auto flex min-h-screen w-full max-w-[1800px] flex-col gap-4 p-3 sm:p-5">
+    <!-- Header -->
+    <header class="glass overflow-hidden rounded-[2rem] border border-white/70 shadow-soft">
+      <div class="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div class="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-gblue via-gred to-gyellow"></div>
+        <div class="flex items-center gap-4">
+          <div class="grid h-14 w-14 shrink-0 grid-cols-2 overflow-hidden rounded-2xl shadow-lg">
+            <span class="bg-gblue"></span><span class="bg-gred"></span><span class="bg-gyellow"></span><span class="bg-ggreen"></span>
+          </div>
+          <div>
+            <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">G-PDF | 頁面重組與排版大師</h1>
+            <p class="mt-1 text-sm text-slate-500">匯入 PDF / 圖片，拖曳排序、精準預覽、智慧瘦身後重新輸出。</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="clearBtn" class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-gred hover:text-gred">
+            <i data-lucide="trash-2" class="h-4 w-4"></i>清空全部
+          </button>
+          <button id="exportBtn" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-gblue via-gred to-ggreen px-5 py-2.5 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
+            <i data-lucide="file-down" class="h-4 w-4"></i>匯出全新 PDF
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Workplace -->
+    <section id="workspace" class="flex flex-1 flex-col gap-4 md:min-h-0 md:flex-row">
+      <!-- Left Column -->
+      <aside class="flex w-full shrink-0 flex-col gap-4 md:w-[300px] lg:w-[340px]">
+        <!-- Upload Card -->
+        <section class="glass rounded-[2rem] border border-white/70 p-4 shadow-soft">
+          <div class="mb-3 flex items-center justify-between">
+            <h2 class="flex items-center gap-2 text-base font-black text-slate-900"><i data-lucide="upload-cloud" class="h-5 w-5 text-gblue"></i>匯入檔案來源</h2>
+            <span class="rounded-full bg-gblue/10 px-3 py-1 text-xs font-bold text-gblue">PDF / PNG / JPG</span>
+          </div>
+
+          <label id="dropZone" for="fileInput" class="group flex min-h-[190px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-slate-300 bg-white/75 p-5 text-center transition hover:border-gblue hover:bg-gblue/5 hover:shadow-glow">
+            <div class="mb-4 grid h-16 w-16 place-items-center rounded-3xl bg-gradient-to-br from-gblue/15 via-gyellow/20 to-ggreen/15 text-gblue transition group-hover:scale-105">
+              <i data-lucide="files" class="h-8 w-8"></i>
+            </div>
+            <p class="text-base font-black text-slate-800">拖放檔案到這裡</p>
+            <p class="mt-1 text-sm text-slate-500">或點擊選擇多個檔案</p>
+            <p class="mt-3 text-xs leading-relaxed text-slate-400">已覆寫瀏覽器預設拖放行為，避免檔案被開到新分頁。</p>
+          </label>
+          <input id="fileInput" class="hidden" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" />
+        </section>
+
+        <!-- Compression Settings -->
+        <section class="glass rounded-[2rem] border border-white/70 p-4 shadow-soft">
+          <h2 class="mb-3 flex items-center gap-2 text-base font-black text-slate-900"><i data-lucide="sliders-horizontal" class="h-5 w-5 text-ggreen"></i>匯出瘦身設定</h2>
+          <div class="space-y-3" id="compressionOptions">
+            <label class="flex cursor-pointer gap-3 rounded-2xl border border-slate-200 bg-white p-3 transition hover:border-gblue">
+              <input type="radio" name="compression" value="high" class="mt-1 accent-gblue" />
+              <span>
+                <span class="block font-black">原始高品質 <span class="text-slate-400">(不瘦身)</span></span>
+                <span class="text-xs text-slate-500">最長邊 1600px，JPEG 90%</span>
+              </span>
+            </label>
+            <label class="relative flex cursor-pointer gap-3 rounded-2xl border-2 border-gblue bg-gblue/5 p-3 transition hover:shadow-glow">
+              <span class="absolute right-3 top-3 rounded-full bg-gblue px-2 py-0.5 text-[10px] font-black text-white">推薦</span>
+              <input type="radio" name="compression" value="standard" checked class="mt-1 accent-gblue" />
+              <span>
+                <span class="block font-black">標準智慧瘦身 <span class="text-slate-400">(推薦)</span></span>
+                <span class="text-xs text-slate-500">最長邊 1000px，JPEG 70%</span>
+              </span>
+            </label>
+            <label class="flex cursor-pointer gap-3 rounded-2xl border border-slate-200 bg-white p-3 transition hover:border-gred">
+              <input type="radio" name="compression" value="strong" class="mt-1 accent-gred" />
+              <span>
+                <span class="block font-black">強力深度瘦身 <span class="text-slate-400">(極致壓縮)</span></span>
+                <span class="text-xs text-slate-500">最長邊 700px，JPEG 45%</span>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <!-- Statistics -->
+        <section class="glass rounded-[2rem] border border-white/70 p-4 shadow-soft">
+          <h2 class="mb-3 flex items-center gap-2 text-base font-black text-slate-900"><i data-lucide="bar-chart-3" class="h-5 w-5 text-gyellow"></i>專案統計與說明</h2>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-2xl bg-white p-3 shadow-sm">
+              <p class="text-xs font-bold text-slate-400">總頁數</p>
+              <p id="statPages" class="text-2xl font-black text-gblue">0</p>
+            </div>
+            <div class="rounded-2xl bg-white p-3 shadow-sm">
+              <p class="text-xs font-bold text-slate-400">來源檔</p>
+              <p id="statFiles" class="text-2xl font-black text-ggreen">0</p>
+            </div>
+            <div class="col-span-2 rounded-2xl bg-white p-3 shadow-sm">
+              <p class="text-xs font-bold text-slate-400">原始大小</p>
+              <p id="statSize" class="text-xl font-black text-slate-800">0 KB</p>
+            </div>
+          </div>
+          <div class="mt-4 rounded-2xl bg-slate-900 p-3 text-xs leading-relaxed text-slate-200">
+            <p class="font-bold text-white">操作提醒</p>
+            <p class="mt-1">拖曳卡片右上角把手可排序；也可直接輸入頁碼。點選卡片後可在右側詳細預覽。</p>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Main columns: grid + preview, reversible on desktop -->
+      <div id="mainColumns" class="flex min-w-0 flex-1 flex-col gap-4 md:min-h-0 md:flex-row">
+        <!-- Middle Column: Reordering Grid -->
+        <section class="glass flex min-w-0 flex-1 flex-col rounded-[2rem] border border-white/70 shadow-soft md:min-h-0">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 p-4">
+            <div>
+              <h2 class="flex items-center gap-2 text-base font-black text-slate-900"><i data-lucide="layout-grid" class="h-5 w-5 text-gblue"></i>調整頁面排序</h2>
+              <p id="gridHint" class="mt-0.5 text-xs text-slate-500">尚未匯入頁面。</p>
+            </div>
+            <button id="addMoreBtn" class="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm ring-1 ring-slate-200 transition hover:text-gblue hover:ring-gblue">
+              <i data-lucide="plus" class="h-4 w-4"></i>新增頁面
+            </button>
+          </div>
+
+          <div id="gridScroll" class="custom-scrollbar flex-1 overflow-y-auto p-4 md:max-h-[calc(100vh-220px)]">
+            <div id="emptyState" class="grid min-h-[360px] place-items-center rounded-[1.5rem] border border-dashed border-slate-300 bg-white/60 p-8 text-center">
+              <div>
+                <div class="mx-auto mb-4 grid h-20 w-20 place-items-center rounded-[2rem] bg-gradient-to-br from-gblue/10 via-gyellow/20 to-ggreen/10 text-gblue">
+                  <i data-lucide="file-plus-2" class="h-10 w-10"></i>
+                </div>
+                <p class="text-lg font-black text-slate-800">開始建立你的新 PDF</p>
+                <p class="mt-2 max-w-md text-sm text-slate-500">匯入多個 PDF 或圖片後，這裡會顯示可拖曳重組的頁面縮圖。</p>
+              </div>
+            </div>
+            <div id="pageGrid" class="grid hidden grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"></div>
+          </div>
+        </section>
+
+        <!-- Right Column: Preview Panel -->
+        <section class="glass flex w-full shrink-0 flex-col rounded-[2rem] border border-white/70 shadow-soft md:sticky md:top-5 md:max-h-[calc(100vh-40px)] md:w-[390px] xl:w-[460px]">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 p-4">
+            <div>
+              <h2 class="flex items-center gap-2 text-base font-black text-slate-900"><i data-lucide="scan-eye" class="h-5 w-5 text-gred"></i>頁面詳細預覽</h2>
+              <p id="previewTitle" class="mt-0.5 text-xs text-slate-500">尚未選取頁面</p>
+            </div>
+            <div class="flex rounded-2xl bg-slate-100 p-1">
+              <button id="alignLeftBtn" class="rounded-xl px-3 py-1.5 text-xs font-black text-slate-600 transition hover:bg-white">置左</button>
+              <button id="alignRightBtn" class="rounded-xl bg-white px-3 py-1.5 text-xs font-black text-gblue shadow-sm transition">置右</button>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-2 border-b border-slate-200/80 p-3">
+            <span class="text-xs font-black text-slate-500">預覽縮放:</span>
+            <div class="flex items-center gap-1">
+              <button id="zoomOutBtn" class="grid h-9 w-9 place-items-center rounded-xl bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 transition hover:text-gblue"><i data-lucide="minus" class="h-4 w-4"></i></button>
+              <span id="zoomLabel" class="w-16 text-center text-sm font-black text-slate-800">100%</span>
+              <button id="zoomInBtn" class="grid h-9 w-9 place-items-center rounded-xl bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 transition hover:text-gblue"><i data-lucide="plus" class="h-4 w-4"></i></button>
+              <button id="zoomResetBtn" class="grid h-9 w-9 place-items-center rounded-xl bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 transition hover:text-gred"><i data-lucide="rotate-ccw" class="h-4 w-4"></i></button>
+            </div>
+          </div>
+
+          <div id="previewWrapper" class="checkerboard custom-scrollbar relative flex min-h-[440px] flex-1 items-center justify-center overflow-hidden rounded-b-[2rem] bg-white p-4">
+            <div id="previewEmpty" class="text-center text-slate-400">
+              <i data-lucide="image" class="mx-auto mb-3 h-12 w-12"></i>
+              <p class="font-bold">選取任一頁面以查看大圖</p>
+              <p class="mt-1 text-xs">Alt + 滾輪可快速縮放；放大後可拖曳平移。</p>
+            </div>
+            <img id="previewImage" alt="頁面預覽" class="hidden max-h-full max-w-full rounded-lg bg-white shadow-xl transition-transform duration-75" />
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <!-- Custom Modal: DOM is persistent; buttons toggle with hidden classes instead of rebuilding innerHTML. -->
+  <div id="modalBackdrop" class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-slate-950/0 p-4 opacity-0 backdrop-blur-0 transition-all duration-300">
+    <div id="modalCard" class="w-full max-w-md translate-y-5 scale-95 rounded-[2rem] border border-white/70 bg-white p-6 opacity-0 shadow-2xl transition-all duration-300">
+      <div id="modalIcon" class="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-gblue/10 text-gblue">
+        <i data-lucide="info" class="h-7 w-7"></i>
+      </div>
+      <h3 id="modalTitle" class="text-xl font-black text-slate-900">提示</h3>
+      <p id="modalMessage" class="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-600"></p>
+      <div class="mt-6 flex justify-end gap-2">
+        <button id="modalCancelBtn" class="hidden rounded-2xl bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200">取消</button>
+        <button id="modalConfirmBtn" class="hidden rounded-2xl bg-gred px-4 py-2 text-sm font-black text-white shadow-lg transition hover:brightness-95">確認</button>
+        <button id="modalOkBtn" class="rounded-2xl bg-gblue px-5 py-2 text-sm font-black text-white shadow-lg transition hover:brightness-95">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**********************************************************************
+     * G-PDF | 頁面重組與排版大師
+     * Single-file client-side web app.
+     * Libraries: Tailwind, PDF-Lib, PDF.js, SortableJS, Lucide Icons.
+     **********************************************************************/
+
+    // PDF.js worker must match PDF.js library version.
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+    // App state: every visual page is represented by one page object.
+    const state = {
+      pages: [],
+      fileNames: new Set(),
+      totalBytes: 0,
+      selectedId: null,
+      sortable: null,
+      previewOnLeft: false,
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      isPanning: false,
+      panStartX: 0,
+      panStartY: 0,
+      panOriginX: 0,
+      panOriginY: 0,
+      modalConfirmCallback: null
+    };
+
+    // Compression tiers: applied only during export, never during sorting.
+    const compressionTiers = {
+      high: { maxDimension: 1600, quality: 0.90 },
+      standard: { maxDimension: 1000, quality: 0.70 },
+      strong: { maxDimension: 700, quality: 0.45 }
+    };
+
+    const el = {
+      fileInput: document.getElementById('fileInput'),
+      dropZone: document.getElementById('dropZone'),
+      addMoreBtn: document.getElementById('addMoreBtn'),
+      clearBtn: document.getElementById('clearBtn'),
+      exportBtn: document.getElementById('exportBtn'),
+      pageGrid: document.getElementById('pageGrid'),
+      emptyState: document.getElementById('emptyState'),
+      gridHint: document.getElementById('gridHint'),
+      statPages: document.getElementById('statPages'),
+      statFiles: document.getElementById('statFiles'),
+      statSize: document.getElementById('statSize'),
+      mainColumns: document.getElementById('mainColumns'),
+      alignLeftBtn: document.getElementById('alignLeftBtn'),
+      alignRightBtn: document.getElementById('alignRightBtn'),
+      previewTitle: document.getElementById('previewTitle'),
+      previewWrapper: document.getElementById('previewWrapper'),
+      previewImage: document.getElementById('previewImage'),
+      previewEmpty: document.getElementById('previewEmpty'),
+      zoomOutBtn: document.getElementById('zoomOutBtn'),
+      zoomInBtn: document.getElementById('zoomInBtn'),
+      zoomResetBtn: document.getElementById('zoomResetBtn'),
+      zoomLabel: document.getElementById('zoomLabel'),
+      modalBackdrop: document.getElementById('modalBackdrop'),
+      modalCard: document.getElementById('modalCard'),
+      modalIcon: document.getElementById('modalIcon'),
+      modalTitle: document.getElementById('modalTitle'),
+      modalMessage: document.getElementById('modalMessage'),
+      modalCancelBtn: document.getElementById('modalCancelBtn'),
+      modalConfirmBtn: document.getElementById('modalConfirmBtn'),
+      modalOkBtn: document.getElementById('modalOkBtn')
+    };
+
+    // Prevent global browser file-open behavior on drag/drop.
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      window.addEventListener(eventName, hardStopDragEvent, false);
+      document.addEventListener(eventName, hardStopDragEvent, false);
+    });
+
+    function hardStopDragEvent(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    // Dedicated drop zone visual states.
+    ['dragenter', 'dragover'].forEach(eventName => {
+      el.dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        el.dropZone.classList.add('border-gblue', 'bg-gblue/10', 'shadow-glow');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      el.dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        el.dropZone.classList.remove('border-gblue', 'bg-gblue/10', 'shadow-glow');
+      });
+    });
+
+    el.dropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await processFiles(Array.from(e.dataTransfer.files || []));
+    });
+
+    el.fileInput.addEventListener('change', async (e) => {
+      await processFiles(Array.from(e.target.files || []));
+      // Critical: allow same file to be uploaded again after deletion.
+      el.fileInput.value = '';
+    });
+
+    el.addMoreBtn.addEventListener('click', () => el.fileInput.click());
+    el.clearBtn.addEventListener('click', () => {
+      if (!state.pages.length) return showModal('目前沒有頁面', '請先匯入 PDF 或圖片。', 'info');
+      showConfirmModal('清空全部', '確定要移除目前所有頁面嗎？此動作不會影響原始檔案。', () => {
+        state.pages = [];
+        state.fileNames.clear();
+        state.totalBytes = 0;
+        state.selectedId = null;
+        renderAll();
+      });
+    });
+    el.exportBtn.addEventListener('click', exportPdf);
+
+    // Layout reversal: preview can be aligned left/right on desktop.
+    el.alignLeftBtn.addEventListener('click', () => setPreviewAlignment(true));
+    el.alignRightBtn.addEventListener('click', () => setPreviewAlignment(false));
+
+    function setPreviewAlignment(left) {
+      state.previewOnLeft = left;
+      el.mainColumns.classList.toggle('md:flex-row-reverse', left);
+      el.mainColumns.classList.toggle('md:flex-row', !left);
+      el.alignLeftBtn.classList.toggle('bg-white', left);
+      el.alignLeftBtn.classList.toggle('text-gblue', left);
+      el.alignLeftBtn.classList.toggle('shadow-sm', left);
+      el.alignRightBtn.classList.toggle('bg-white', !left);
+      el.alignRightBtn.classList.toggle('text-gblue', !left);
+      el.alignRightBtn.classList.toggle('shadow-sm', !left);
+    }
+
+    // Zoom controls.
+    el.zoomOutBtn.addEventListener('click', () => setZoom(state.zoom - 0.1));
+    el.zoomInBtn.addEventListener('click', () => setZoom(state.zoom + 0.1));
+    el.zoomResetBtn.addEventListener('click', resetZoomPan);
+
+    // Alt + Wheel zoom on preview wrapper.
+    el.previewWrapper.addEventListener('wheel', (e) => {
+      if (!e.altKey || !state.selectedId) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.12 : -0.12;
+      setZoom(state.zoom + delta);
+    }, { passive: false });
+
+    // Drag-to-pan when zoomed in.
+    el.previewWrapper.addEventListener('mousedown', (e) => {
+      if (state.zoom <= 1 || !state.selectedId) return;
+      e.preventDefault();
+      state.isPanning = true;
+      state.panStartX = e.clientX;
+      state.panStartY = e.clientY;
+      state.panOriginX = state.panX;
+      state.panOriginY = state.panY;
+      el.previewWrapper.classList.add('cursor-grabbing');
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!state.isPanning) return;
+      state.panX = state.panOriginX + e.clientX - state.panStartX;
+      state.panY = state.panOriginY + e.clientY - state.panStartY;
+      applyPreviewTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      state.isPanning = false;
+      el.previewWrapper.classList.remove('cursor-grabbing');
+    });
+
+    // Modal controls: no alert/confirm used.
+    el.modalOkBtn.addEventListener('click', hideModal);
+    el.modalCancelBtn.addEventListener('click', hideModal);
+    el.modalConfirmBtn.addEventListener('click', () => {
+      const cb = state.modalConfirmCallback;
+      hideModal();
+      if (typeof cb === 'function') cb();
+    });
+
+    function showModal(title, message, type = 'info') {
+      state.modalConfirmCallback = null;
+      el.modalTitle.textContent = title;
+      el.modalMessage.textContent = message;
+      el.modalCancelBtn.classList.add('hidden');
+      el.modalConfirmBtn.classList.add('hidden');
+      el.modalOkBtn.classList.remove('hidden');
+      setModalIcon(type);
+      openModalAnimation();
+    }
+
+    function showConfirmModal(title, message, onConfirm) {
+      state.modalConfirmCallback = onConfirm;
+      el.modalTitle.textContent = title;
+      el.modalMessage.textContent = message;
+      el.modalCancelBtn.classList.remove('hidden');
+      el.modalConfirmBtn.classList.remove('hidden');
+      el.modalOkBtn.classList.add('hidden');
+      setModalIcon('warning');
+      openModalAnimation();
+    }
+
+    function setModalIcon(type) {
+      const classMap = {
+        info: ['bg-gblue/10', 'text-gblue', 'info'],
+        success: ['bg-ggreen/10', 'text-ggreen', 'check-circle-2'],
+        warning: ['bg-gred/10', 'text-gred', 'triangle-alert']
+      };
+      const [bg, color, icon] = classMap[type] || classMap.info;
+      el.modalIcon.className = `mb-4 grid h-14 w-14 place-items-center rounded-2xl ${bg} ${color}`;
+      el.modalIcon.querySelector('svg')?.remove();
+      el.modalIcon.innerHTML = `<i data-lucide="${icon}" class="h-7 w-7"></i>`;
+      lucide.createIcons();
+    }
+
+    function openModalAnimation() {
+      el.modalBackdrop.classList.remove('pointer-events-none', 'bg-slate-950/0', 'opacity-0', 'backdrop-blur-0');
+      el.modalBackdrop.classList.add('bg-slate-950/45', 'opacity-100', 'backdrop-blur-sm');
+      requestAnimationFrame(() => {
+        el.modalCard.classList.remove('translate-y-5', 'scale-95', 'opacity-0');
+        el.modalCard.classList.add('translate-y-0', 'scale-100', 'opacity-100');
+      });
+    }
+
+    function hideModal() {
+      el.modalCard.classList.add('translate-y-5', 'scale-95', 'opacity-0');
+      el.modalCard.classList.remove('translate-y-0', 'scale-100', 'opacity-100');
+      el.modalBackdrop.classList.add('pointer-events-none', 'bg-slate-950/0', 'opacity-0', 'backdrop-blur-0');
+      el.modalBackdrop.classList.remove('bg-slate-950/45', 'opacity-100', 'backdrop-blur-sm');
+    }
+
+    // Robust MIME + extension validation.
+    function isSupportedFile(file) {
+      const name = (file.name || '').toLowerCase();
+      const type = (file.type || '').toLowerCase();
+      const validExt = ['.pdf', '.png', '.jpg', '.jpeg'].some(ext => name.endsWith(ext));
+      const validMime = ['application/pdf', 'image/png', 'image/jpeg'].includes(type);
+      return validExt || validMime;
+    }
+
+    function inferFileKind(file) {
+      const name = (file.name || '').toLowerCase();
+      const type = (file.type || '').toLowerCase();
+      if (type === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+      if (type === 'image/png' || name.endsWith('.png')) return 'png';
+      if (type === 'image/jpeg' || name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'jpg';
+      return 'unknown';
+    }
+
+    async function processFiles(files) {
+      if (!files.length) return;
+      const supported = files.filter(isSupportedFile);
+      const rejected = files.length - supported.length;
+      if (rejected) showModal('部分檔案未匯入', `有 ${rejected} 個檔案格式不支援。請使用 PDF、PNG、JPG 或 JPEG。`, 'warning');
+
+      for (const file of supported) {
+        try {
+          state.fileNames.add(file.name);
+          state.totalBytes += file.size || 0;
+          const kind = inferFileKind(file);
+          if (kind === 'pdf') await importPdf(file);
+          else await importImage(file, kind);
+        } catch (err) {
+          console.error(err);
+          showModal('匯入失敗', `${file.name}\n${err.message || '檔案讀取時發生錯誤。'}`, 'warning');
+        }
+      }
+      if (!state.selectedId && state.pages[0]) state.selectedId = state.pages[0].id;
+      renderAll();
+    }
+
+    async function importPdf(file) {
+      const rawBuffer = await file.arrayBuffer();
+      // Critical guardrail: PDF.js worker may transfer ArrayBuffer ownership.
+      // Keep an independent copy for PDF-Lib export source.
+      const bufferForPdfLib = rawBuffer.slice(0);
+      const bufferForPdfJs = rawBuffer.slice(0);
+
+      const loadingTask = pdfjsLib.getDocument({
+        data: bufferForPdfJs,
+        disableRange: true,
+        disableAutoFetch: true
+      });
+      const pdf = await loadingTask.promise;
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+        const thumbDataUrl = await renderPdfPageToDataURL(pdf, pageNumber, 0.45);
+        const previewDataUrl = await renderPdfPageToDataURL(pdf, pageNumber, 1.25);
+        state.pages.push({
+          id: crypto.randomUUID(),
+          type: 'pdf',
+          sourceName: file.name,
+          pageNumber,
+          sourceBuffer: bufferForPdfLib,
+          thumbnail: thumbDataUrl,
+          preview: previewDataUrl,
+          originalWidth: null,
+          originalHeight: null
+        });
+      }
+      await pdf.destroy();
+    }
+
+    async function renderPdfPageToDataURL(pdf, pageNumber, scale) {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { alpha: false });
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      page.cleanup();
+      return canvas.toDataURL('image/jpeg', 0.82);
+    }
+
+    async function importImage(file, kind) {
+      const buffer = await file.arrayBuffer();
+      const dataUrl = await blobToDataURL(new Blob([buffer], { type: file.type || (kind === 'png' ? 'image/png' : 'image/jpeg') }));
+      const img = await loadImage(dataUrl);
+      const thumb = await imageToDataUrl(img, 420, 0.82);
+      const preview = await imageToDataUrl(img, 1400, 0.9);
+      state.pages.push({
+        id: crypto.randomUUID(),
+        type: 'image',
+        imageKind: kind,
+        sourceName: file.name,
+        sourceBuffer: buffer,
+        thumbnail: thumb,
+        preview,
+        originalWidth: img.naturalWidth,
+        originalHeight: img.naturalHeight
+      });
+    }
+
+    function blobToDataURL(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('圖片載入失敗'));
+        img.src = src;
+      });
+    }
+
+    // Canvas processor with white fill to avoid black transparency when PNG becomes JPEG.
+    async function imageToDataUrl(img, maxDimension, quality) {
+      const { width, height } = scaledSize(img.naturalWidth, img.naturalHeight, maxDimension);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', quality);
+    }
+
+    function scaledSize(width, height, maxDimension) {
+      const maxSide = Math.max(width, height);
+      if (maxSide <= maxDimension) return { width, height };
+      const ratio = maxDimension / maxSide;
+      return { width: Math.round(width * ratio), height: Math.round(height * ratio) };
+    }
+
+    function renderAll() {
+      renderStats();
+      renderGrid();
+      renderPreview();
+      ensureSortable();
+      lucide.createIcons();
+    }
+
+    function renderStats() {
+      el.statPages.textContent = String(state.pages.length);
+      el.statFiles.textContent = String(state.fileNames.size);
+      el.statSize.textContent = formatBytes(state.totalBytes);
+      el.gridHint.textContent = state.pages.length ? `共 ${state.pages.length} 頁，可拖曳或輸入頁碼調整。` : '尚未匯入頁面。';
+      el.exportBtn.disabled = state.pages.length === 0;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return '0 KB';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let size = bytes;
+      let unit = 0;
+      while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+      return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+    }
+
+    function renderGrid() {
+      el.emptyState.classList.toggle('hidden', state.pages.length > 0);
+      el.pageGrid.classList.toggle('hidden', state.pages.length === 0);
+      el.pageGrid.innerHTML = '';
+
+      state.pages.forEach((page, index) => {
+        const card = document.createElement('article');
+        card.dataset.id = page.id;
+        card.className = [
+          'group relative overflow-hidden rounded-2xl border bg-white p-2 shadow-sm transition',
+          page.id === state.selectedId ? 'border-gblue ring-4 ring-gblue/15' : 'border-slate-200 hover:border-gblue/70 hover:shadow-md'
+        ].join(' ');
+
+        card.innerHTML = `
+          <div class="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-xl bg-white/95 p-1 shadow-sm ring-1 ring-slate-200">
+            <input type="number" min="1" max="${state.pages.length}" value="${index + 1}" aria-label="頁面排序" class="order-input h-8 w-12 rounded-lg border border-slate-200 bg-slate-50 text-center text-xs font-black text-slate-800 outline-none transition focus:border-gblue focus:bg-white" />
+          </div>
+          <button class="delete-btn absolute bottom-2 right-2 z-10 grid h-8 w-8 place-items-center rounded-xl bg-white/95 text-slate-400 shadow-sm ring-1 ring-slate-200 transition hover:text-gred" title="刪除此頁">
+            <i data-lucide="x" class="h-4 w-4"></i>
+          </button>
+          <button class="drag-handle absolute right-2 top-2 z-10 grid h-8 w-8 cursor-grab place-items-center rounded-xl bg-white/95 text-slate-400 shadow-sm ring-1 ring-slate-200 transition hover:text-gblue active:cursor-grabbing" title="拖曳排序">
+            <i data-lucide="grip-vertical" class="h-4 w-4"></i>
+          </button>
+          <div class="aspect-[3/4] overflow-hidden rounded-xl bg-slate-100">
+            <img src="${page.thumbnail}" alt="第 ${index + 1} 頁縮圖" class="h-full w-full object-contain" />
+          </div>
+          <div class="mt-2 min-w-0">
+            <p class="truncate text-xs font-black text-slate-700">第 ${index + 1} 頁</p>
+            <p class="truncate text-[11px] text-slate-400">${escapeHtml(page.sourceName)}${page.type === 'pdf' ? `｜原 PDF 第 ${page.pageNumber} 頁` : '｜圖片'}</p>
+          </div>
+        `;
+
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.delete-btn') || e.target.closest('.order-input') || e.target.closest('.drag-handle')) return;
+          selectPage(page.id);
+        });
+
+        card.querySelector('.delete-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          deletePage(page.id);
+        });
+
+        const input = card.querySelector('.order-input');
+        input.addEventListener('focus', (e) => e.target.select());
+        input.addEventListener('click', (e) => e.stopPropagation());
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') e.target.blur();
+          if (e.key === 'Escape') {
+            e.target.value = index + 1;
+            e.target.blur();
+          }
+        });
+        input.addEventListener('change', () => moveByInput(page.id, input.value));
+
+        el.pageGrid.appendChild(card);
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>'"]/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[ch]));
+    }
+
+    function ensureSortable() {
+      if (state.sortable) state.sortable.destroy();
+      if (!state.pages.length) return;
+      state.sortable = new Sortable(el.pageGrid, {
+        animation: 180,
+        handle: '.drag-handle',
+        ghostClass: 'opacity-40',
+        chosenClass: 'ring-4',
+        onEnd: (evt) => {
+          if (evt.oldIndex === evt.newIndex) return;
+          const [moved] = state.pages.splice(evt.oldIndex, 1);
+          state.pages.splice(evt.newIndex, 0, moved);
+          // Selection persists by stable page id.
+          renderAll();
+        }
+      });
+    }
+
+    function moveByInput(pageId, rawValue) {
+      const currentIndex = state.pages.findIndex(p => p.id === pageId);
+      if (currentIndex === -1) return renderGrid();
+
+      const max = state.pages.length;
+      const parsed = Number.parseInt(rawValue, 10);
+      if (!Number.isFinite(parsed)) return renderGrid();
+
+      const targetIndex = Math.min(Math.max(parsed, 1), max) - 1;
+      if (targetIndex === currentIndex) return renderGrid();
+
+      // Sequential shifting algorithm: remove X then insert at Y - 1.
+      const [moved] = state.pages.splice(currentIndex, 1);
+      state.pages.splice(targetIndex, 0, moved);
+      state.selectedId = pageId;
+      renderAll();
+    }
+
+    function selectPage(id) {
+      if (state.selectedId === id) return;
+      state.selectedId = id;
+      resetZoomPan();
+      renderAll();
+    }
+
+    function deletePage(id) {
+      const index = state.pages.findIndex(p => p.id === id);
+      if (index === -1) return;
+      state.pages.splice(index, 1);
+      if (state.selectedId === id) {
+        state.selectedId = state.pages[index]?.id || state.pages[index - 1]?.id || null;
+        resetZoomPan();
+      }
+      renderAll();
+    }
+
+    function renderPreview() {
+      const page = state.pages.find(p => p.id === state.selectedId);
+      if (!page) {
+        el.previewImage.classList.add('hidden');
+        el.previewEmpty.classList.remove('hidden');
+        el.previewTitle.textContent = '尚未選取頁面';
+        return;
+      }
+      const index = state.pages.findIndex(p => p.id === page.id);
+      el.previewTitle.textContent = `第 ${index + 1} 頁｜${page.sourceName}${page.type === 'pdf' ? `｜原 PDF 第 ${page.pageNumber} 頁` : ''}`;
+      el.previewImage.src = page.preview;
+      el.previewImage.classList.remove('hidden');
+      el.previewEmpty.classList.add('hidden');
+      applyPreviewTransform();
+    }
+
+    function setZoom(value) {
+      const oldZoom = state.zoom;
+      state.zoom = Math.min(4, Math.max(0.5, Number(value.toFixed(2))));
+      if (state.zoom <= 1) {
+        state.panX = 0;
+        state.panY = 0;
+      } else if (oldZoom <= 1) {
+        state.panX = 0;
+        state.panY = 0;
+      }
+      applyPreviewTransform();
+    }
+
+    function resetZoomPan() {
+      state.zoom = 1;
+      state.panX = 0;
+      state.panY = 0;
+      applyPreviewTransform();
+    }
+
+    function applyPreviewTransform() {
+      el.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+      el.previewImage.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+      el.previewWrapper.classList.toggle('cursor-grab', state.zoom > 1 && !!state.selectedId);
+      el.previewWrapper.classList.toggle('cursor-default', state.zoom <= 1 || !state.selectedId);
+    }
+
+    async function exportPdf() {
+      if (!state.pages.length) return showModal('沒有可匯出的頁面', '請先匯入 PDF 或圖片。', 'info');
+
+      const originalText = el.exportBtn.innerHTML;
+      el.exportBtn.disabled = true;
+      el.exportBtn.innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i>匯出處理中';
+      lucide.createIcons();
+
+      try {
+        const { PDFDocument } = PDFLib;
+        const outputPdf = await PDFDocument.create();
+        const selectedTier = document.querySelector('input[name="compression"]:checked')?.value || 'standard';
+        const tier = compressionTiers[selectedTier];
+
+        // Cache loaded PDFs by object identity string to avoid re-loading for every copied page.
+        const pdfCache = new Map();
+
+        for (const page of state.pages) {
+          if (page.type === 'pdf') {
+            const key = `${page.sourceName}_${page.sourceBuffer.byteLength}`;
+            let sourcePdf = pdfCache.get(key);
+            if (!sourcePdf) {
+              // PDF-Lib gets its own safe copy.
+              sourcePdf = await PDFDocument.load(page.sourceBuffer.slice(0));
+              pdfCache.set(key, sourcePdf);
+            }
+            const [copiedPage] = await outputPdf.copyPages(sourcePdf, [page.pageNumber - 1]);
+            outputPdf.addPage(copiedPage);
+          } else {
+            // Images are compressed on-demand only during export.
+            const imageBlob = new Blob([page.sourceBuffer], { type: page.imageKind === 'png' ? 'image/png' : 'image/jpeg' });
+            const imageDataUrl = await blobToDataURL(imageBlob);
+            const img = await loadImage(imageDataUrl);
+            const compressedJpegDataUrl = await imageToDataUrl(img, tier.maxDimension, tier.quality);
+            const jpgBytes = dataUrlToUint8Array(compressedJpegDataUrl);
+            const embedded = await outputPdf.embedJpg(jpgBytes);
+            const pdfPage = outputPdf.addPage([embedded.width, embedded.height]);
+            pdfPage.drawImage(embedded, { x: 0, y: 0, width: embedded.width, height: embedded.height });
+          }
+        }
+
+        const pdfBytes = await outputPdf.save({ useObjectStreams: true });
+        const fileName = getLocalTimestampFileName();
+        downloadBytes(pdfBytes, fileName, 'application/pdf');
+        showModal('匯出完成', `已產生檔案：${fileName}`, 'success');
+      } catch (err) {
+        console.error(err);
+        showModal('匯出失敗', err.message || '產生 PDF 時發生錯誤。', 'warning');
+      } finally {
+        el.exportBtn.disabled = state.pages.length === 0;
+        el.exportBtn.innerHTML = originalText;
+        lucide.createIcons();
+      }
+    }
+
+    function dataUrlToUint8Array(dataUrl) {
+      const base64 = dataUrl.split(',')[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+
+    // Strict local timestamp: YYYYMMDDHHMM.pdf.
+    function getLocalTimestampFileName() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}.pdf`;
+    }
+
+    function downloadBytes(bytes, fileName, mime) {
+      const blob = new Blob([bytes], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    // Initial render.
+    setPreviewAlignment(false);
+    renderAll();
+  </script>
+</body>
+</html>
